@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <RunningMedian.h>
+#include <PID_v1.h>
 
 
 //##############################################################################
@@ -38,11 +39,15 @@ RunningMedian temp (100);
 unsigned long serialTime, tempTime;
 double tempCelsius;
 
+// Definimos las variables PID que se usarán
+double Setpoint, Output;
 
+// Definimos 2 tipos de parámetros: conservadores y agresivos
+double aggKp=4, aggKi=0.2, aggKd=1;
+double consKp=1, consKi=0.05, consKd=0.25;
 
-//### Reset function
-//void(* resetFunc) (void) = 0; //declare reset function @ address 0
-
+//Specify the links and initial tuning parameters
+PID myPID(&tempCelsius, &Output, &Setpoint, consKp, consKi, consKd, DIRECT);
 
 
 
@@ -51,15 +56,20 @@ double tempCelsius;
 //##############################################################################
 void setup() {
   Serial.begin(115200);
-  Serial.println("init...");
+  Serial.println("");
+  Serial.println("-------- INIT --------");
 
   // set PIN modes
   pinMode(PIN_THM, INPUT);
   pinMode(PIN_PWM, OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);
 
-  tempTime     = 0;
-  serialTime   = 0;
+  tempTime    = 0;
+  serialTime  = 0;
+  Setpoint    = SET_TEMP;
+
+  //turn the PID on
+  myPID.SetMode(AUTOMATIC);
 }
 
 
@@ -76,25 +86,29 @@ void loop() {
     tempTime = millis() + TIME_UPDATE_TEMP;
 
     tempCelsius = adc2temp(temp.getMedian(), VCC, SERIESRESISTOR, true);
-
-    if (tempCelsius < SET_TEMP){
-      digitalWrite(PIN_PWM, HIGH);  
-
-    } else {
-      digitalWrite(PIN_PWM, LOW); 
-    }
   }
 
   // Imprime la temperatura por serial
   if(millis() > serialTime){
     digitalWrite(LED_BUILTIN, HIGH);
 
-    Serial.println(tempCelsius);
-
+    Serial.println("Temperatura: " + String(tempCelsius) + "; PWM: " + String(Output));
     serialTime =  millis() + TIME_UPDATE_SERIAL;
 
     digitalWrite(LED_BUILTIN, LOW);
   }
+
+   double gap = abs(SET_TEMP-tempCelsius); //distance away from setpoint
+  if (gap < 1) {  //we're close to setpoint, use conservative tuning parameters    
+    myPID.SetTunings(consKp, consKi, consKd);
+
+  } else {
+     //we're far from setpoint, use aggressive tuning parameters
+     myPID.SetTunings(aggKp, aggKi, aggKd);
+  }
+
+  myPID.Compute();
+  analogWrite(PIN_PWM, Output);
 
 }
 
